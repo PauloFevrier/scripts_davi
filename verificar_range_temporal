@@ -1,0 +1,54 @@
+import pandas as pd
+
+df_verificacao = pd.read_csv(r'C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\Outputs\testeDF\todos_dados.csv')
+
+df_verificacao['Ano'] = df_verificacao['Data'].str.split('-').str[0].astype(int)
+
+# Agrupa os dados por estação e encontra o ano mínimo e máximo
+grouped = df_verificacao.groupby('EstacaoCodigo')['Ano'].agg(['min', 'max']).reset_index()
+
+resultado = []
+
+# Itera sobre cada estação
+for _, row in grouped.iterrows():
+    estacao = row['EstacaoCodigo']
+    min_ano = row['min']
+    max_ano = row['max']
+    
+    anos_faltantes = []
+    primeiro_ano_disponivel = None
+    ultimo_ano_disponivel = None
+    
+    # Verifica se falta o ano de 1990
+    if min_ano > 1990:
+        anos_faltantes.append(1990)
+        primeiro_ano_disponivel = min_ano
+    
+    # Verifica se falta o ano de 2020
+    if max_ano < 2020:
+        anos_faltantes.append(2020)
+        ultimo_ano_disponivel = max_ano
+    
+    # Se houver anos faltantes, adiciona ao resultado
+    if anos_faltantes:
+        entry = {
+            'EstacaoCodigo': estacao,
+            'AnosFaltantes': ', '.join(map(str, anos_faltantes))  # Converte lista para string
+        }
+        if primeiro_ano_disponivel is not None:
+            entry['PrimeiroAnoDisponivel'] = primeiro_ano_disponivel
+        if ultimo_ano_disponivel is not None:
+            entry['UltimoAnoDisponivel'] = ultimo_ano_disponivel
+        resultado.append(entry)
+
+# Cria um DataFrame com os resultados
+df_resultado = pd.DataFrame(resultado)
+
+# Define a ordem das colunas (opcional)
+colunas = ['EstacaoCodigo', 'AnosFaltantes', 'PrimeiroAnoDisponivel', 'UltimoAnoDisponivel']
+df_resultado = df_resultado.reindex(columns=colunas)
+
+# Exporta para Excel
+df_resultado.to_excel('estacoes_faltantes.xlsx', index=False)
+
+print("Arquivo 'estacoes_faltantes.xlsx' exportado com sucesso!")

@@ -1,0 +1,87 @@
+import pandas as pd
+import os
+import matplotlib.pyplot as plt
+
+workspace = r"C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\dados_chuvaANA"
+estacoes_file = r"C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\estacoes_rj.csv"
+
+files = [file for file in os.listdir(workspace) if file.endswith("_Chuvas.csv")]
+
+Data_Frames = []
+
+for file in files:
+    caminho_csv = os.path.join(workspace, file)
+
+    df = pd.read_csv(caminho_csv, encoding='iso-8859-1', sep=';', skiprows=14, on_bad_lines='skip')
+    df = df[df['NivelConsistencia']==1]
+
+    precip_columns = [col for col in df.columns if col.startswith('Chuva') and not col.endswith('Status')]
+    cols_to_keep = ['Data', 'EstacaoCodigo', 'NumDiasDeChuva'] + precip_columns
+    df = df[cols_to_keep]
+    df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
+    df[precip_columns] = df[precip_columns].replace(',', '.', regex=True).apply(pd.to_numeric, errors='coerce')
+    df = df[(df['Data'] >= '1990-01-01') & (df['Data'] <= '2020-12-31')]
+    df['MesAno'] = df['Data'].dt.to_period('M')
+    df['Acumulado_mensal(mm)'] = df[precip_columns].sum(axis=1)
+    df['NumDiasDeChuva'] = df['NumDiasDeChuva'].fillna(0).astype(int)
+    df = df.rename(columns={'NumDiasDeChuva': 'NumDiasDeChuva_Mensal'})
+    df['Ano'] = df['Data'].dt.year
+    df['Mes'] = df['Data'].dt.month
+    df_agrupado = df.groupby(['Ano'])['Acumulado_mensal(mm)'].sum().reset_index()
+    df_agrupado.rename(columns={'Acumulado_mensal(mm)': 'Acumulado_Anual(mm)'}, inplace=True)
+    df = pd.merge(df, df_agrupado, on='Ano')
+    df_agrupado2 = df.groupby(['Ano'])['NumDiasDeChuva_Mensal'].sum().reset_index()
+    df_agrupado2.rename(columns={'NumDiasDeChuva_Mensal': 'NumDiasDeChuva_Anual'}, inplace=True)
+    df = pd.merge(df, df_agrupado2, on='Ano')
+    df_Acumulados = pd.merge(df_agrupado, df_agrupado2, on='Ano')
+    rename_dict = {col: col.replace('Chuva', 'Dia') for col in precip_columns}
+    df.rename(columns=rename_dict, inplace=True)
+    df['Acumulado_Medio_Mensal'] = df.groupby('Mes')['Acumulado_mensal(mm)'].transform('mean')
+    df['Acumulado_Medio_Anual'] = df['Acumulado_Anual(mm)'].mean()
+    estacoes_do_ano = {'Outono': [3, 4, 5], 'Inverno': [6, 7, 8], 'Primavera': [9, 10, 11], 'Verão': [12, 1, 2]}
+    acumulados_anuais = pd.DataFrame()
+    for estacao, meses in estacoes_do_ano.items():
+        df_estacao = df[df['Mes'].isin(meses)]
+        acumulado_anual = df_estacao.groupby('Ano')['Acumulado_mensal(mm)'].sum().reset_index()
+        nome_coluna = f"{estacao}_Acumulado"
+        acumulado_anual.rename(columns={'Acumulado_mensal(mm)': nome_coluna}, inplace=True)
+        if acumulados_anuais.empty:
+            acumulados_anuais = acumulado_anual
+        else:
+            acumulados_anuais = acumulados_anuais.merge(acumulado_anual, on='Ano', how='outer')
+    df = pd.merge(df, acumulados_anuais, on='Ano')
+    outono_medio = df['Outono_Acumulado'].mean()
+    inverno_medio = df['Inverno_Acumulado'].mean()
+    primavera_medio = df['Primavera_Acumulado'].mean()
+    verao_medio = df['Verão_Acumulado'].mean()
+    df['Outono_Acumulado_Medio'] = outono_medio
+    df['Inverno_Acumulado_Medio'] = inverno_medio
+    df['Primavera_Acumulado_Medio'] = primavera_medio
+    df['Verão_Acumulado_Medio'] = verao_medio
+    df = df[['EstacaoCodigo', 'Data', 'NumDiasDeChuva_Mensal', 'NumDiasDeChuva_Anual', 'Acumulado_mensal(mm)', 'Acumulado_Medio_Mensal', 'Acumulado_Anual(mm)', 'Acumulado_Medio_Anual',
+             'Verão_Acumulado', 'Verão_Acumulado_Medio', 'Primavera_Acumulado', 'Primavera_Acumulado_Medio', 'Inverno_Acumulado', 'Inverno_Acumulado_Medio', 'Outono_Acumulado', 'Outono_Acumulado_Medio']]
+#             'Dia01', 'Dia02', 'Dia03', 'Dia04', 'Dia05', 'Dia06', 'Dia07', 'Dia08', 'Dia09', 'Dia10', 'Dia11', 'Dia12', 'Dia13', 'Dia14', 'Dia15', 'Dia16', 'Dia17', 'Dia18',
+#             'Dia19', 'Dia20', 'Dia21', 'Dia22', 'Dia23', 'Dia24', 'Dia25', 'Dia26', 'Dia27', 'Dia28', 'Dia29', 'Dia30', 'Dia31', 'Mes', 'Ano']]
+    Data_Frames.append(df)
+
+estacoes = []
+for df in Data_Frames:
+    for estacao in df['EstacaoCodigo']:
+        if estacao not in estacoes:
+            estacoes.append(estacao)
+
+# Cria um dicionário para associar nomes aos DataFrames
+dfs_renomeados = {nome: df for nome, df in zip(estacoes, Data_Frames)}
+
+pasta_saida = r'C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\Outputs\testeDF'
+os.makedirs(pasta_saida, exist_ok=True)  # Cria a pasta se ela não existir
+
+# Exporta cada DataFrame para um arquivo CSV na pasta
+for nome, df in dfs_renomeados.items():
+    caminho_arquivo = os.path.join(pasta_saida, f'{nome}.csv')
+    df.to_csv(caminho_arquivo, index=False)
+
+# Concatena todos os DataFrames
+df_final = pd.concat(Data_Frames, ignore_index=True)
+df_final.to_csv(r'C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\Outputs\testeDF\todos_dados.csv', float_format='%.2f', index=False)
+df_final.to_excel(r"C:\Users\davils\Documents\Lauriano\Code\Arcpy\Victor\Outputs\testeDF\Dados_ANA_tratados.xlsx", float_format='%.2f', index=False)
